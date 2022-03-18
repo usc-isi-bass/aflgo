@@ -196,14 +196,21 @@ def calculating_distances(args):
         if name not in callgraph_dot: return
         outname = name + ".distances.txt"
         outpath = cfg.parent / outname
-        exec_distance_prog(
-                cfg,
-                bbtargets,
-                outpath,
-                bbnames,
-                callgraph_distance,
-                bbcalls,
-                py_version=args.python_only)
+        log_p = args.temporary_directory / f"step{STEP}.log"
+        try:
+            exec_distance_prog(
+                    cfg,
+                    bbtargets,
+                    outpath,
+                    bbnames,
+                    callgraph_distance,
+                    bbcalls,
+                    py_version=args.python_only)
+        except subprocess.CalledProcessError as err:
+            with log_p.open("w") as f:
+                f.write(str(cfg) + "\n")
+                f.write(err.stderr.decode())
+            #abort(args)
     print(f"({STEP}) Computing distance for control-flow graphs (this might "
           "take a while)")
     with ThreadPoolExecutor(max_workers=mp.cpu_count()) as executor:
