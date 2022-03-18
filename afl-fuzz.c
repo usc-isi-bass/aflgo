@@ -95,6 +95,7 @@ EXP_ST u8 *in_dir,                    /* Input directory with test cases  */
 
 EXP_ST u32 exec_tmout = EXEC_TIMEOUT; /* Configurable exec timeout (ms)   */
 static u32 hang_tmout = EXEC_TIMEOUT; /* Timeout used for hang det (ms)   */
+static u32 interrupt_cnt = 0;
 
 EXP_ST u64 mem_limit  = MEM_LIMIT;    /* Memory cap for child (MB)        */
 
@@ -2179,7 +2180,7 @@ EXP_ST void init_forkserver(char** argv) {
   if (waitpid(forksrv_pid, &status, 0) <= 0)
     PFATAL("waitpid() failed");
 
-  if (WIFSIGNALED(status)) {
+  if (WIFSIGNALED(status) && WTERMSIG(status) != 5) {
 
     if (mem_limit && mem_limit < 500 && uses_asan) {
 
@@ -2247,7 +2248,8 @@ EXP_ST void init_forkserver(char** argv) {
     }
 
     FATAL("Fork server crashed with signal %d", WTERMSIG(status));
-
+  } else if (WIFSIGNALED(status) && WTERMSIG(status) == 5) {
+    interrupt_cnt += 1;
   }
 
   if (*(u32*)trace_bits == EXEC_FAIL_SIG)
@@ -2483,7 +2485,7 @@ static u8 run_target(char** argv, u32 timeout) {
 
   /* Report outcome to caller. */
 
-  if (WIFSIGNALED(status) && !stop_soon) {
+  if (WIFSIGNALED(status) && WTERMSIG(status) != 5 && !stop_soon) {
 
     kill_signal = WTERMSIG(status);
 
@@ -2491,6 +2493,8 @@ static u8 run_target(char** argv, u32 timeout) {
 
     return FAULT_CRASH;
 
+  } else if (WIFSIGNALED(status) && WTERMSIG(status) == 5) {
+    interrupt_cnt += 1;
   }
 
   /* A somewhat nasty hack for MSAN, which doesn't support abort_on_error and
@@ -3478,6 +3482,7 @@ static void write_stats_file(double bitmap_cvg, double stability, double eps) {
   fprintf(f, "start_time        : %llu\n"
              "last_update       : %llu\n"
              "fuzzer_pid        : %u\n"
+             "interrupt_cnt     : %u\n"
              "cycles_done       : %llu\n"
              "execs_done        : %llu\n"
              "execs_per_sec     : %0.02f\n"
@@ -3504,6 +3509,7 @@ static void write_stats_file(double bitmap_cvg, double stability, double eps) {
              "target_mode       : %s%s%s%s%s%s%s\n"
              "command_line      : %s\n",
              start_time / 1000, get_cur_time() / 1000, getpid(),
+             interrupt_cnt,
              queue_cycle ? (queue_cycle - 1) : 0, total_execs, eps,
              queued_paths, queued_favored, queued_discovered, queued_imported,
              max_depth, current_entry, pending_favored, pending_not_fuzzed,
